@@ -49,6 +49,7 @@ Comandi / Commands:
   sos [opzioni]              Invia un segnale di allarme/soccorso georeferenziato strutturato (CRITICAL)
   bundle export [opzioni]    Esporta la coda store-and-forward in un bundle sneakernet fisico
   bundle import [opzioni]    Importa e verifica pacchetti da un file bundle sneakernet
+  sync [opzioni]             Trasmette offerta di riconciliazione delta ai peer mesh
   sponsor                    Mostra le opzioni per supportare il progetto open source
   --help, -h                 Mostra questa guida
   --version, -v              Mostra la versione installata
@@ -350,6 +351,49 @@ async function main(): Promise<void> {
       console.log(`\n💾 Bundle sneakernet esportato con successo in: ${outFile}`);
       return;
     }
+    if (subCmd === 'import') {
+      const inFile = getArgValue(args, '--file') ?? './crisismesh.bundle.json';
+      if (!fs.existsSync(inFile)) {
+        console.error(`Errore: file bundle "${inFile}" non trovato.`);
+        process.exit(1);
+      }
+      try {
+        const raw = fs.readFileSync(inFile, 'utf8');
+        const bundle = JSON.parse(raw);
+        const id = createIdentity('bundle-importer');
+        const node = new CrisisNode({ identity: id });
+        const res = node.importBundle(bundle);
+        console.log(`\n📥 Bundle importato con successo da: ${inFile}`);
+        console.log(`   Pacchetti Convalidati e Importati : ${res.imported}`);
+        console.log(`   Pacchetti Scartati o Duplicati     : ${res.rejected}\n`);
+      } catch (err: unknown) {
+        console.error('Errore durante importazione bundle:', err instanceof Error ? err.message : err);
+        process.exit(1);
+      }
+      return;
+    }
+  }
+
+  if (command === 'sync') {
+    const idFile = getArgValue(args, '--id') ?? './node-identity.json';
+    const portRaw = getArgValue(args, '--port');
+    const port = portRaw ? parseInt(portRaw, 10) : 8443;
+    let identity;
+    if (fs.existsSync(idFile)) {
+      identity = loadIdentityFromFile(idFile);
+    } else {
+      identity = createIdentity('sync-node');
+    }
+    const node = new CrisisNode({ identity });
+    const transport = new UdpMeshTransport({ port: 0, broadcastPort: port });
+    node.addTransport(transport);
+    await node.start();
+    await node.broadcastSyncOffer();
+    console.log(`\n🔄 Offerta di sincronizzazione delta trasmessa su porta UDP ${port}`);
+    await new Promise((resolve) => setTimeout(resolve, 500));
+    await node.stop();
+    printSponsorHint();
+    return;
   }
 
   console.log(`Comando non riconosciuto: "${command}". Esegui crisismesh --help`);

@@ -124,6 +124,11 @@ export class SerialLoRaTransport implements MeshTransport {
   private handleIncomingChunk(chunk: Buffer): void {
     this.buffer = Buffer.concat([this.buffer, chunk]);
 
+    // Safety guard against unbounded memory consumption if corrupted by RF line noise
+    if (this.buffer.length > 65536) {
+      this.buffer = this.buffer.subarray(this.buffer.length - 4096);
+    }
+
     while (this.buffer.length >= 6) {
       // Seek frame preamble 0xAA 0x55
       let syncIndex = -1;
@@ -135,7 +140,12 @@ export class SerialLoRaTransport implements MeshTransport {
       }
 
       if (syncIndex === -1) {
-        this.buffer = Buffer.alloc(0);
+        // If the very last byte is 0xAA, preserve it in case 0x55 arrives in the next chunk
+        if (this.buffer.length > 0 && this.buffer[this.buffer.length - 1] === 0xaa) {
+          this.buffer = Buffer.from([0xaa]);
+        } else {
+          this.buffer = Buffer.alloc(0);
+        }
         return;
       }
 

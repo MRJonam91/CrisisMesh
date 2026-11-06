@@ -115,3 +115,27 @@ test('CrisisNode: detects tampering and discards invalid packet', async () => {
   await nodeA.stop();
   await nodeB.stop();
 });
+
+test('CrisisNode: control frames (heartbeat, sync) do not pollute store-and-forward queue', async () => {
+  const channel = new VirtualRadioChannel();
+  const id = createIdentity('control-node');
+  const node = new CrisisNode({ identity: id });
+  const transport = new VirtualRadioTransport(id.nodeId, channel);
+  node.addTransport(transport);
+  await node.start();
+
+  assert.equal(node.getQueueSize(), 0);
+
+  // Send single-hop control frames
+  await node.sendHeartbeat();
+  await node.broadcastSyncOffer();
+
+  // Queue must still be 0 (control frames must not linger in store-and-forward outbox)
+  assert.equal(node.getQueueSize(), 0);
+
+  // Send normal alert: must be enqueued
+  await node.broadcast({ alert: 'real payload' });
+  assert.equal(node.getQueueSize(), 1);
+
+  await node.stop();
+});

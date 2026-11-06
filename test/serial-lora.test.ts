@@ -68,3 +68,60 @@ test('SerialLoRaTransport: frames and transmits packet over mock serial stream',
   await transportA.stop();
   await transportB.stop();
 });
+
+test('SerialLoRaTransport: reassembles frame across fragmented chunks and preamble split', async () => {
+  const stream = new MockSerialStream();
+  const transport = new SerialLoRaTransport(stream);
+  await transport.start();
+
+  const id = createIdentity('frag-node');
+  const header = {
+    id: 'pkt_frag_1',
+    type: 'alert' as const,
+    sender: id.nodeId,
+    senderPubkey: id.publicKeyHex,
+    recipient: '*',
+    timestamp: Date.now(),
+    ttl: 3600,
+    maxHops: 3,
+    hopCount: 0,
+    path: [id.nodeId],
+    priority: 'normal' as const
+  };
+  const payload = { frag: true };
+  const signature = signPacketEnvelope(header, payload, id.privateKeyPem);
+  const packet: MeshPacket = {
+    magic: CMSH_MAGIC,
+    version: CMSH_VERSION,
+    header,
+    payload,
+    signature
+  };
+
+  const payloadBuf = Buffer.from(JSON.stringify(packet), 'utf8');
+  const headerBuf = Buffer.alloc(4);
+  headerBuf.writeUInt8(0xaa, 0);
+  headerBuf.writeUInt8(0x55, 1);
+  headerBuf.writeUInt16BE(payloadBuf.length, 2);
+  const crcBuf = Buffer.alloc(2);
+  crcBuf.writeUInt16BE(crc16Ccitt(payloadBuf), 0);
+  const fullFrame = Buffer.concat([headerBuf, payloadBuf, crcBuf]);
+
+  let received: MeshPacket | null = null;
+  transport.onPacket((pkt) => {
+    received = pkt;
+  });
+
+  // Chunk 1: includes garbage noise + preamble byte 1 (0xaa)
+  const chunk1 = Buffer.concat([Buffer.from([0x00, 0x11, 0x22, 0xaa])]);
+  // Chunk 2: preamble byte 2 (0x55) + rest of the frame
+  const chunk2 = fullFrame.subarray(1);
+
+  stream.emit('data', chunk1);
+  stream.emit('data', chunk2);
+
+  assert.ok(received !== null);
+  assert.equal((received as MeshPacket).header.id, 'pkt_frag_1');
+
+  await transport.stop();
+});

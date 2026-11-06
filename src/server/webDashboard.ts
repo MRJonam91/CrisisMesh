@@ -271,17 +271,28 @@ function renderDashboardHtml(node: CrisisNode): string {
   </div>
 
   <script>
+    function escapeHtml(str) {
+      if (typeof str !== 'string') str = JSON.stringify(str);
+      const div = document.createElement('div');
+      div.textContent = str;
+      return div.innerHTML;
+    }
+
     async function refreshInbox() {
       try {
-        const res = await fetch('/api/inbox');
+        const [res, peersRes] = await Promise.all([fetch('/api/inbox'), fetch('/api/peers')]);
         const msgs = await res.json();
+        const peers = await peersRes.json();
+        const peerCountEl = document.getElementById('peer-count');
+        if (peerCountEl && Array.isArray(peers)) peerCountEl.textContent = peers.length;
+
         const list = document.getElementById('inbox-list');
         if (msgs.length === 0) return;
         list.innerHTML = msgs.reverse().map(m => {
           const cls = m.priority === 'critical' ? 'msg-critical' : (m.priority === 'high' ? 'msg-high' : '');
           return '<div class="msg-item ' + cls + '">' +
-            '<strong>[' + m.priority.toUpperCase() + ']</strong> da ' + m.sender + ' (' + m.hopCount + ' salti)<br>' +
-            '<p>' + JSON.stringify(m.payload) + '</p>' +
+            '<strong>[' + escapeHtml(m.priority.toUpperCase()) + ']</strong> da ' + escapeHtml(m.sender) + ' (' + m.hopCount + ' salti)<br>' +
+            '<p>' + escapeHtml(m.payload) + '</p>' +
             '<small style="color:var(--muted)">Firma Ed25519: Verificata ✓ · Ritardo: ' + m.deliveryDelayMs + 'ms</small>' +
           '</div>';
         }).join('');

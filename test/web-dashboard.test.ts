@@ -77,6 +77,20 @@ test('CrisisWebServer: serves health, HTML dashboard and REST APIs', async () =>
     assert.equal(bundleRes.status, 200);
     const bundle = await bundleRes.json();
     assert.equal(bundle.exporterNodeId, id.nodeId);
+
+    // 7. Routes API
+    const routesRes = await fetch(`${baseUrl}/api/routes`);
+    assert.equal(routesRes.status, 200);
+    const routes = await routesRes.json();
+    assert.ok(Array.isArray(routes));
+
+    // 8. Validation error on empty text
+    const emptyRes = await fetch(`${baseUrl}/api/send`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ text: '' })
+    });
+    assert.equal(emptyRes.status, 400);
   } finally {
     server.close();
     await node.stop();

@@ -262,7 +262,11 @@ export class CrisisNode extends EventEmitter {
   }
 
   private async dispatchPacket(packet: MeshPacket): Promise<void> {
-    this.queue.enqueue(packet);
+    if (packet.header.type === 'alert' || packet.header.type === 'direct') {
+      this.queue.enqueue(packet);
+    } else {
+      this.queue.markSeen(packet.header.id);
+    }
     this.metrics.sentCount++;
 
     for (const transport of this.transports) {
