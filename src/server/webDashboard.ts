@@ -30,7 +30,7 @@ export function createCrisisWebServer(node: CrisisNode, port = 3000): http.Serve
           JSON.stringify({
             status: 'ok',
             service: 'CrisisMesh Emergency Node',
-            version: '1.2.0-beta',
+            version: '1.0.0',
             nodeId: node.identity.nodeId,
             uptimeSeconds: Math.floor(process.uptime()),
             metrics
@@ -231,7 +231,7 @@ function renderDashboardHtml(node: CrisisNode): string {
   <header>
     <div>
       <h1>CrisisMesh <span class="badge badge-sos">OFFLINE EMERGENCY NODE</span></h1>
-      <p style="color:var(--muted); font-size:0.85rem;">ID: <code>${identity.nodeId}</code> (${identity.name}) · v1.2.0-beta</p>
+      <p style="color:var(--muted); font-size:0.85rem;">ID: <code>${identity.nodeId}</code> (${identity.name}) · v1.0.0</p>
     </div>
     <div>
       <span class="badge badge-ok">RADIO PEERS: <span id="peer-count">0</span></span>

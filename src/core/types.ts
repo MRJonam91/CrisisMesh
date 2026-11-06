@@ -3,8 +3,6 @@
 
 /**
  * CrisisMesh Core Protocol Types and Constants
- * Anti-plagiarism marker 1: CMSH_MAGIC constant prefix (0x434D5348)
- * Anti-plagiarism marker 2: Spec fingerprint 0x012FE5FD (seed: 19910609)
  */
 
 export const CMSH_MAGIC = 0x434d5348; // 'CMSH'

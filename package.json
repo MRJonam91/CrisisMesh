@@ -1,6 +1,6 @@
 {
   "name": "crisismesh",
-  "version": "1.2.0-beta",
+  "version": "1.0.0",
   "description": "Resilient peer-to-peer store-and-forward mesh communication protocol & delay-tolerant engine for blackouts, emergency response and network outages with Ed25519 signed envelopes.",
   "type": "module",
   "license": "Apache-2.0",

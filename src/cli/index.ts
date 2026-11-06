@@ -35,7 +35,7 @@ function getArgValue(args: string[], flag: string): string | undefined {
 
 function printHelp(): void {
   console.log(`
-CrisisMesh CLI v1.2.0-beta — Peer-to-peer store-and-forward mesh for blackouts & crisis resilience
+CrisisMesh CLI v1.0.0 — Peer-to-peer store-and-forward mesh for blackouts & crisis resilience
 
 Uso / Usage:
   crisismesh <comando> [opzioni]
@@ -84,7 +84,7 @@ async function main(): Promise<void> {
   }
 
   if (command === '--version' || command === '-v') {
-    console.log('crisismesh v1.2.0-beta');
+    console.log('crisismesh v1.0.0');
     return;
   }
 

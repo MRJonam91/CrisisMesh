@@ -13,7 +13,9 @@ Guida per il rilascio in produzione e la pubblicazione di CrisisMesh.
 - [x] Documentazione bilingue completa (Italiano / English)
 - [x] Prova di laboratorio verificabile riproducibile (`crisismesh trial` / `npm run trial`)
 - [x] Avvertenza etica e confini operativi evidenziati nei README
-- [ ] Transizione della repository a **Public** su GitHub (dopo revisione manuale dell'autore)
+- [x] Portale web offline di emergenza e REST API verificati
+- [x] Adapter hardware LoRa con CRC-16 verificato
+- [x] Transizione della repository a **Public** su GitHub
 
 ## Canali di Promozione e Lancio
 
