@@ -13,7 +13,9 @@ import type {
   SneakernetBundle,
   NeighborPeer,
   SyncOfferPayload,
-  SyncRequestPayload
+  SyncRequestPayload,
+  AckPayload,
+  RouteEntry
 } from './types.ts';
 import { CMSH_MAGIC, CMSH_VERSION } from './types.ts';
 import { signPacketEnvelope, verifyPacketSignature } from './identity.ts';
@@ -38,6 +40,8 @@ export class CrisisNode extends EventEmitter {
   private transports: MeshTransport[] = [];
   private inbox: DeliveredMessage[] = [];
   private peers = new Map<string, NeighborPeer>();
+  private acks: AckPayload[] = [];
+  private routes = new Map<string, RouteEntry>();
   private defaultMaxHops: number;
   private defaultTtlSeconds: number;
   private isRunning = false;
@@ -206,6 +210,14 @@ export class CrisisNode extends EventEmitter {
     return [...this.peers.values()];
   }
 
+  public getAcks(): AckPayload[] {
+    return [...this.acks];
+  }
+
+  public getRoutes(): RouteEntry[] {
+    return [...this.routes.values()];
+  }
+
   public exportBundle(notes?: string): SneakernetBundle {
     return this.queue.exportBundle(this.identity.nodeId, notes);
   }
@@ -309,8 +321,31 @@ export class CrisisNode extends EventEmitter {
       this.emit('peer:discovered', peerInfo);
     }
 
+    // Distance-vector routing table update: record shortest known route to sender
+    const distance = packet.header.hopCount + 1;
+    const immediateHop = packet.header.path[packet.header.path.length - 1] ?? packet.header.sender;
+    const existingRoute = this.routes.get(packet.header.sender);
+    if (!existingRoute || distance <= existingRoute.distanceHops) {
+      this.routes.set(packet.header.sender, {
+        destinationNodeId: packet.header.sender,
+        nextHopNodeId: immediateHop,
+        distanceHops: distance,
+        lastUpdated: Date.now()
+      });
+    }
+
     // Mark as seen immediately
     this.queue.markSeen(packet.header.id);
+
+    // Handle end-to-end delivery ACK packets
+    if (packet.header.type === 'ack' && (packet.header.recipient === '*' || packet.header.recipient === this.identity.nodeId)) {
+      const ack = packet.payload as AckPayload;
+      if (ack?.originalPacketId) {
+        this.acks.push(ack);
+        this.emit('message:acked', ack);
+      }
+      return;
+    }
 
     // 5. Handle Epidemic Sync Protocol packets
     if (packet.header.type === 'sync_offer') {
@@ -389,6 +424,25 @@ export class CrisisNode extends EventEmitter {
       this.inbox.push(delivered);
       this.metrics.deliveredCount++;
       this.emit('message', delivered);
+
+      // Send automatic authenticated delivery ACK for directed messages
+      if (packet.header.recipient === this.identity.nodeId && packet.header.type === 'direct') {
+        const ackPayload: AckPayload = {
+          originalPacketId: packet.header.id,
+          originalSender: packet.header.sender,
+          recipientNodeId: this.identity.nodeId,
+          deliveredAt: Date.now()
+        };
+        const ackPacket = this.createPacket(
+          'ack',
+          packet.header.sender,
+          ackPayload,
+          'high',
+          1800,
+          packet.header.maxHops
+        );
+        void this.dispatchPacket(ackPacket);
+      }
     }
 
     // 7. Store-and-Forward Relay Decision

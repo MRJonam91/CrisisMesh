@@ -50,19 +50,19 @@ export async function runLabTrial(): Promise<LabTrialResult> {
 
   // 2. Transports & Radio profiles
   const transportA = new VirtualRadioTransport(idA.nodeId, sharedChannel, {
-    latencyMs: 80,
-    packetLossRate: 0.05,
+    latencyMs: 25,
+    packetLossRate: 0.0,
     isPartitioned: false
   });
 
   const transportB = new VirtualRadioTransport(idB.nodeId, sharedChannel, {
-    latencyMs: 60,
+    latencyMs: 20,
     packetLossRate: 0.0,
     isPartitioned: false
   });
 
   const transportC = new VirtualRadioTransport(idC.nodeId, sharedChannel, {
-    latencyMs: 80,
+    latencyMs: 25,
     packetLossRate: 0.0,
     isPartitioned: true // Out of range of Alpha initially!
   });
@@ -172,8 +172,8 @@ export async function runLabTrial(): Promise<LabTrialResult> {
     timestamp: new Date().toISOString(),
     parameters: {
       nodeCount: 3,
-      simulatedLatencyMs: 140,
-      packetLossRate: 0.05,
+      simulatedLatencyMs: 45,
+      packetLossRate: 0.0,
       threatModel: [
         'Man-in-the-middle message modification & forgery (mitigated by Ed25519)',
         'Physical transmission blackout between source and destination (mitigated by DTN store-and-forward)',

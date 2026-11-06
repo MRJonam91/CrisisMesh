@@ -8,4 +8,7 @@ export * from './core/storage.ts';
 export * from './core/transports.ts';
 export * from './core/node.ts';
 export * from './core/labTrial.ts';
+export * from './adapters/serialLoRa.ts';
+export * from './server/webDashboard.ts';
+
 

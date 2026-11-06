@@ -13,6 +13,7 @@ import {
 import { CrisisNode } from '../core/node.ts';
 import { UdpMeshTransport } from '../core/transports.ts';
 import { runLabTrial } from '../core/labTrial.ts';
+import { createCrisisWebServer } from '../server/webDashboard.ts';
 import type { MeshPriority, EmergencyDistressPayload } from '../core/types.ts';
 
 const SPONSOR_LINE =
@@ -34,7 +35,7 @@ function getArgValue(args: string[], flag: string): string | undefined {
 
 function printHelp(): void {
   console.log(`
-CrisisMesh CLI v1.1.0-alpha — Peer-to-peer store-and-forward mesh for blackouts & crisis resilience
+CrisisMesh CLI v1.2.0-beta — Peer-to-peer store-and-forward mesh for blackouts & crisis resilience
 
 Uso / Usage:
   crisismesh <comando> [opzioni]
@@ -43,6 +44,7 @@ Comandi / Commands:
   trial                      Esegue la prova di laboratorio verificabile (First Verifiable Slice)
   identity create [opzioni]  Genera una nuova identità crittografica Ed25519 + X25519 (E2EE)
   node start [opzioni]       Avvia un nodo peer mesh attivo su socket locale UDP
+  web [opzioni]              Avvia il portale web offline di emergenza e server REST
   send [opzioni]             Invia un pacchetto firmato su rete locale mesh (broadcast o diretto)
   sos [opzioni]              Invia un segnale di allarme/soccorso georeferenziato strutturato (CRITICAL)
   bundle export [opzioni]    Esporta la coda store-and-forward in un bundle sneakernet fisico
@@ -54,7 +56,8 @@ Comandi / Commands:
 Opzioni / Options:
   --id <file>                Percorso del file identità (default: ./node-identity.json)
   --name <nome>              Nome visualizzato del nodo (default: local-node)
-  --port <porta>             Porta UDP locale (default: 8443)
+  --port <porta>             Porta UDP locale o Porta Web (default: 8443 / 3000)
+  --web-port <porta>         Porta del server Web dashboard (default: 3000)
   --broadcast-port <porta>   Porta UDP broadcast remota (default: 8443)
   --message, -m <testo>      Contenuto del messaggio da trasmettere
   --priority <p>             Priorità: critical, high, normal, low (default: normal)
@@ -81,7 +84,7 @@ async function main(): Promise<void> {
   }
 
   if (command === '--version' || command === '-v') {
-    console.log('crisismesh v1.1.0-alpha');
+    console.log('crisismesh v1.2.0-beta');
     return;
   }
 
@@ -206,6 +209,49 @@ async function main(): Promise<void> {
       });
       return;
     }
+  }
+
+  if (command === 'web') {
+    const idFile = getArgValue(args, '--id') ?? './node-identity.json';
+    const udpPortRaw = getArgValue(args, '--port');
+    const udpPort = udpPortRaw ? parseInt(udpPortRaw, 10) : 8443;
+    const webPortRaw = getArgValue(args, '--web-port');
+    const webPort = webPortRaw ? parseInt(webPortRaw, 10) : 3000;
+    const journalPath = getArgValue(args, '--journal');
+
+    let identity;
+    if (fs.existsSync(idFile)) {
+      identity = loadIdentityFromFile(idFile);
+      identity = ensureEncryptionKeys(identity);
+    } else {
+      identity = createIdentity('web-node');
+      saveIdentityToFile(idFile, identity);
+    }
+
+    const node = new CrisisNode({
+      identity,
+      storagePath: journalPath ? path.resolve(journalPath) : undefined
+    });
+    const transport = new UdpMeshTransport({ port: udpPort, broadcastPort: udpPort });
+    node.addTransport(transport);
+    await node.start();
+
+    const server = createCrisisWebServer(node, webPort);
+
+    console.log(`\n🌐 CrisisMesh Emergency Web Portal attivo! (v1.2.0-beta)`);
+    console.log(`   Dashboard Web : http://localhost:${webPort}`);
+    console.log(`   Socket UDP    : 0.0.0.0:${udpPort}`);
+    console.log(`   Node ID       : ${identity.nodeId} (${identity.name})`);
+    console.log('   Premi Ctrl+C per arrestare il portale.\n');
+
+    process.on('SIGINT', async () => {
+      console.log('\nArresto portale web e nodo CrisisMesh...');
+      server.close();
+      await node.stop();
+      printSponsorHint();
+      process.exit(0);
+    });
+    return;
   }
 
   if (command === 'sos') {

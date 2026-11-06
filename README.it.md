@@ -76,8 +76,14 @@ npx crisismesh identity create --name "avamposto-1" --out ./node.json
 # 3. Avvia il demone peer mesh su socket UDP locale
 npx crisismesh node start --id ./node.json --port 8443
 
-# 4. Invia un allarme prioritario firmato in broadcast
+# 4. Avvia il portale web offline e server REST di emergenza
+npx crisismesh web --web-port 3000 --port 8443
+
+# 5. Invia un allarme prioritario firmato in broadcast
 npx crisismesh send -m "Richiesta acqua potabile Settore 4" --priority critical --port 8443
+
+# 6. Trasmetti un segnale S.O.S. georeferenziato strutturato
+npx crisismesh sos --category medical --lat 45.07 --lon 7.68 --needs "Plasma e barelle"
 ```
 
 ---

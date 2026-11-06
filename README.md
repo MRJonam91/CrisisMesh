@@ -76,8 +76,14 @@ npx crisismesh identity create --name "field-post-1" --out ./node.json
 # 3. Start a local UDP mesh listener daemon
 npx crisismesh node start --id ./node.json --port 8443
 
-# 4. Broadcast a signed emergency distress packet
+# 4. Launch the offline emergency Web Portal & REST API
+npx crisismesh web --web-port 3000 --port 8443
+
+# 5. Broadcast a signed emergency distress packet
 npx crisismesh send -m "Need clean water at Sector 4" --priority critical --port 8443
+
+# 6. Dispatch a structured S.O.S. distress beacon
+npx crisismesh sos --category medical --lat 45.07 --lon 7.68 --needs "Blood plasma"
 ```
 
 ---

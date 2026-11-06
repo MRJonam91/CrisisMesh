@@ -53,29 +53,37 @@
    - I messaggi vengono mantenuti in un buffer prioritizzato. Gli allarmi `CRITICAL` (es. S.O.S., crolli strutturali) vengono instradati per primi rispetto a comunicazioni di servizio o telemetria.
    - La cache LRU dei pacchetti già visti (`SeenCache`) elimina i duplicati e protegge la maglia mesh da loop infiniti e broadcast storm.
 
-3. **Trasporti Pluggabili (`src/core/transports.ts`)**:
+3. **Trasporti Pluggabili (`src/core/transports.ts`, `src/adapters/serialLoRa.ts`)**:
    - **VirtualRadioTransport**: Canale in-memory ad alta fedeltà con parametri regolabili (latenza ms, tasso di perdita pacchetti casuale, interruttore di partizione di rete) per validazione automatica in CI e prove riproducibili.
    - **UdpMeshTransport**: Trasporto broadcast UDP reale su interfaccia di rete locale (zero dipendenze esterne oltre al runtime standard di Node.js), per consentire a due o più processi o dispositivi sulla stessa LAN/Wi-Fi di parlarsi senza connessione internet.
+   - **SerialLoRaTransport**: Adattatore hardware per ricetrasmettitori sub-GHz LoRa (SX1262 / SX1276) via UART con preambolo `0xAA 0x55` e checksum CRC-16-CCITT.
    - **Sneakernet Data Mule**: Esportazione e importazione di bundle crittografici (`.bundle.json`) per il trasporto fisico su memorie USB o schede SD attraverso soccorritori o droni.
 
-4. **Confini e Limiti di Sicurezza**:
+4. **Portale Web Offline e Dashboard di Emergenza (`src/server/webDashboard.ts`)**:
+   - Server HTTP nativo per consultazione su smartphone o laptop connessi al nodo via Wi-Fi locale offline.
+   - REST API per triage, invio S.O.S., consultazione posta in arrivo ed esportazione bundle.
+
+5. **Confini e Limiti di Sicurezza**:
    - **Non è un canale di emergenza certificato**: CrisisMesh è un prototipo per ricerca e sperimentazione tecnologica resiliente; non sostituisce i numeri unici di emergenza (112/911) né i canali radio di protezione civile regolamentati.
 
 ---
 
 ## 🇬🇧 Architectural Core
 
-1. **Deterministic Cryptographic Identity (`src/core/identity.ts`)**:
-   - Every node operates with an Ed25519 keypair.
+1. **Deterministic Cryptographic Identity & E2EE (`src/core/identity.ts`, `src/core/encryption.ts`)**:
+   - Every node operates with an Ed25519 signing keypair and an X25519 keypair.
    - The Node ID is an SHA-256 truncated fingerprint (`cm_<pubkey_hash>`).
    - Packets contain canonical SHA-256 digests signed by the originator's private key.
+   - Direct messages support authenticated E2EE (X25519 ECDH + AES-256-GCM).
    - Tampered packets are deterministically dropped before hitting local application state.
 
 2. **Delay-Tolerant Store-and-Forward Engine (`src/core/storage.ts`)**:
    - Prioritised outbox (`CRITICAL` > `HIGH` > `NORMAL` > `LOW`).
    - Epidemic gossip with loop-prevention through `path` recording and `maxHops` enforcement.
    - Sliding `SeenCache` preventing packet broadcast storms.
-   - Configurable TTL bounds preventing stale packet accumulation.
+   - Distance-vector shortest path routing table with end-to-end delivery ACK envelopes.
+   - Configurable TTL bounds and atomic crash-resilient disk journaling.
 
-3. **Extending Transports**:
-   - Implement the `MeshTransport` interface (`broadcast`, `sendTo`, `onPacket`) to integrate real physical RF hardware (LoRa SX1262 via SPI/serial UART, Bluetooth Low Energy BLE advertisements, or Wi-Fi Direct).
+3. **Hardware Adapters & Offline Web**:
+   - Standard `MeshTransport` interface implementations (`UdpMeshTransport`, `SerialLoRaTransport`, `VirtualRadioTransport`).
+   - Built-in accessible emergency web portal and REST API (`createCrisisWebServer`).

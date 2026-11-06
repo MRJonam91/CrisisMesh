@@ -137,3 +137,17 @@ export interface RadioSimulationProfile {
   bandwidthKbps?: number;
   isPartitioned?: boolean;
 }
+
+export interface AckPayload {
+  originalPacketId: string;
+  originalSender: string;
+  recipientNodeId: string;
+  deliveredAt: number;
+}
+
+export interface RouteEntry {
+  destinationNodeId: string;
+  nextHopNodeId: string;
+  distanceHops: number;
+  lastUpdated: number;
+}
