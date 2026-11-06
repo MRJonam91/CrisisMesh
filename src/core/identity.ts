@@ -36,13 +36,38 @@ export function createIdentity(name = 'cmesh-node'): MeshIdentity {
   const pubHash = crypto.createHash('sha256').update(pubDer).digest('hex');
   const nodeId = `cm_${pubHash.substring(0, 16)}`;
 
+  // Generate companion X25519 keypair for authenticated E2EE payload confidentiality
+  const xPair = crypto.generateKeyPairSync('x25519');
+  const xPubDer = xPair.publicKey.export({ type: 'spki', format: 'der' });
+  const x25519PublicKeyHex = xPubDer.toString('hex');
+  const x25519PrivateKeyPem = xPair.privateKey.export({ type: 'pkcs8', format: 'pem' }).toString();
+
   return {
     nodeId,
     name,
     publicKeyHex,
     privateKeyPem,
+    x25519PublicKeyHex,
+    x25519PrivateKeyPem,
     createdAt: Date.now()
   };
+}
+
+/**
+ * Ensures an identity contains X25519 encryption keys, generating them if migrating from legacy.
+ */
+export function ensureEncryptionKeys(identity: MeshIdentity): MeshIdentity {
+  if (identity.x25519PublicKeyHex && identity.x25519PrivateKeyPem) {
+    return identity;
+  }
+  const xPair = crypto.generateKeyPairSync('x25519');
+  identity.x25519PublicKeyHex = xPair.publicKey
+    .export({ type: 'spki', format: 'der' })
+    .toString('hex');
+  identity.x25519PrivateKeyPem = xPair.privateKey
+    .export({ type: 'pkcs8', format: 'pem' })
+    .toString();
+  return identity;
 }
 
 /**

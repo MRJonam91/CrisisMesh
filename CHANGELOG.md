@@ -3,6 +3,17 @@
 Tutte le modifiche rilevanti a questo progetto sono documentate in questo file.
 Il formato si basa su [Keep a Changelog](https://keepachangelog.com/it/1.0.0/), e rispetta il [Semantic Versioning](https://semver.org/).
 
+## [1.1.0-alpha] - 2026-11-06
+
+### Added
+- **End-to-End Encryption (E2EE)**: Crittografia asimmetrica autenticata per messaggi diretti confidenziali tramite scambio chiavi X25519 ECDH e cifratura AEAD AES-256-GCM (`src/core/encryption.ts`), impedendo l'intercettazione da parte dei relay mesh intermedi.
+- **Protocollo di Riconciliazione Epidemica (Delta Sync)**: Handshake bidirezionale `sync_offer` e `sync_request` per scambiare unicamente i pacchetti mancanti, eliminando la ritrasmissione ridondante su canali radio a banda limitata (LoRa, VHF).
+- **Tabella di Vicinato e Scoperta Peer**: Beacons periodici `heartbeat` a singolo salto per mappare i nodi attivi nel raggio radio e monitorare l'attività dei vicini (`node.getPeers()`, evento `peer:discovered`).
+- **Persistenza Atomica della Coda (Crash Resilience)**: Supporto a file di journaling JSON (`--journal` / `storagePath`) con scritture atomiche temporanee, per garantire la sopravvivenza dei pacchetti bufferizzati a blackout energetici e riavvii forzati.
+- **Payload Strutturati per Emergenze e Triage S.O.S.**: Tipizzazione forte per coordinate GPS (latitudine/longitudine), categorie di emergenza (medical, rescue, hazard, structural), fabbisogno di risorse e stima delle vittime.
+- **Comando CLI `crisismesh sos`**: Invio rapido di allarmi georeferenziati prioritari da terminale.
+- **Suite di Test Estesa**: Aggiunti test completi per crittografia E2EE, discovery di vicinato, tolleranza ai guasti con persistenza su disco e riconciliazione delta sync (18 test totali, 100% verdi).
+
 ## [1.0.0] - 2026-11-06
 
 ### Added

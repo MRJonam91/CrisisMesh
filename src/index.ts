@@ -3,6 +3,7 @@
 
 export * from './core/types.ts';
 export * from './core/identity.ts';
+export * from './core/encryption.ts';
 export * from './core/storage.ts';
 export * from './core/transports.ts';
 export * from './core/node.ts';

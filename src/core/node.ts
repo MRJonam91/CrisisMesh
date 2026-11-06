@@ -10,10 +10,14 @@ import type {
   MeshPriority,
   DeliveredMessage,
   MeshMetrics,
-  SneakernetBundle
+  SneakernetBundle,
+  NeighborPeer,
+  SyncOfferPayload,
+  SyncRequestPayload
 } from './types.ts';
 import { CMSH_MAGIC, CMSH_VERSION } from './types.ts';
 import { signPacketEnvelope, verifyPacketSignature } from './identity.ts';
+import { encryptPayload, decryptPayload, isEncryptedPayload } from './encryption.ts';
 import { StoreAndForwardQueue } from './storage.ts';
 import type { MeshTransport } from './transports.ts';
 
@@ -22,6 +26,7 @@ export interface NodeOptions {
   maxHopsDefault?: number;
   ttlSecondsDefault?: number;
   maxQueuePackets?: number;
+  storagePath?: string;
 }
 
 /**
@@ -32,6 +37,7 @@ export class CrisisNode extends EventEmitter {
   private queue: StoreAndForwardQueue;
   private transports: MeshTransport[] = [];
   private inbox: DeliveredMessage[] = [];
+  private peers = new Map<string, NeighborPeer>();
   private defaultMaxHops: number;
   private defaultTtlSeconds: number;
   private isRunning = false;
@@ -52,7 +58,8 @@ export class CrisisNode extends EventEmitter {
     this.defaultMaxHops = options.maxHopsDefault ?? 5;
     this.defaultTtlSeconds = options.ttlSecondsDefault ?? 86400; // 24 hours default DTN TTL
     this.queue = new StoreAndForwardQueue({
-      maxPackets: options.maxQueuePackets ?? 500
+      maxPackets: options.maxQueuePackets ?? 500,
+      storagePath: options.storagePath
     });
   }
 
@@ -119,6 +126,56 @@ export class CrisisNode extends EventEmitter {
   }
 
   /**
+   * Sends an End-to-End Encrypted (E2EE) direct message using X25519 ECDH + AES-256-GCM.
+   */
+  public async sendDirectEncrypted<T = unknown>(
+    recipientNodeId: string,
+    recipientX25519PubHex: string,
+    payload: T,
+    options: { priority?: MeshPriority; ttl?: number; maxHops?: number } = {}
+  ): Promise<MeshPacket> {
+    const encrypted = encryptPayload(
+      recipientX25519PubHex,
+      payload,
+      this.identity.x25519PrivateKeyPem
+    );
+    return this.sendDirect(recipientNodeId, encrypted, options);
+  }
+
+  /**
+   * Broadcasts a heartbeat beacon for neighbor discovery.
+   */
+  public async sendHeartbeat(): Promise<MeshPacket> {
+    const packet = this.createPacket(
+      'heartbeat',
+      '*',
+      { name: this.identity.name, seq: Date.now() },
+      'low',
+      300,
+      1 // Neighbor discovery is 1 hop only
+    );
+    await this.dispatchPacket(packet);
+    return packet;
+  }
+
+  /**
+   * Broadcasts a sync offer containing buffered packet IDs for epidemic delta reconciliation.
+   */
+  public async broadcastSyncOffer(): Promise<MeshPacket<SyncOfferPayload>> {
+    const offerPacketIds = this.queue.getAll().map((p) => p.header.id);
+    const packet = this.createPacket(
+      'sync_offer',
+      '*',
+      { offerPacketIds, senderNodeId: this.identity.nodeId },
+      'low',
+      600,
+      1
+    );
+    await this.dispatchPacket(packet);
+    return packet;
+  }
+
+  /**
    * Dispatches buffered store-and-forward queue to connected peers.
    */
   public async flushQueue(): Promise<number> {
@@ -145,17 +202,20 @@ export class CrisisNode extends EventEmitter {
     return this.queue.size();
   }
 
+  public getPeers(): NeighborPeer[] {
+    return [...this.peers.values()];
+  }
+
   public exportBundle(notes?: string): SneakernetBundle {
     return this.queue.exportBundle(this.identity.nodeId, notes);
   }
 
   public importBundle(bundle: SneakernetBundle): { imported: number; rejected: number } {
-    const result = this.queue.importBundle(bundle);
-    return result;
+    return this.queue.importBundle(bundle);
   }
 
   private createPacket<T>(
-    type: 'alert' | 'direct',
+    type: 'alert' | 'direct' | 'heartbeat' | 'sync_offer' | 'sync_request' | 'ack',
     recipient: string,
     payload: T,
     priority: MeshPriority,
@@ -190,7 +250,7 @@ export class CrisisNode extends EventEmitter {
   }
 
   private async dispatchPacket(packet: MeshPacket): Promise<void> {
-    this.queue.markSeen(packet.header.id);
+    this.queue.enqueue(packet);
     this.metrics.sentCount++;
 
     for (const transport of this.transports) {
@@ -198,7 +258,7 @@ export class CrisisNode extends EventEmitter {
     }
   }
 
-  private handleIncomingPacket(packet: MeshPacket, _fromAddress: string): void {
+  private handleIncomingPacket(packet: MeshPacket, fromAddress: string): void {
     this.metrics.receivedCount++;
 
     // 1. Verify Magic
@@ -232,15 +292,85 @@ export class CrisisNode extends EventEmitter {
       return;
     }
 
+    // Track neighbor peer in peer discovery table
+    const isNewPeer = !this.peers.has(packet.header.sender);
+    const peerInfo: NeighborPeer = {
+      nodeId: packet.header.sender,
+      name:
+        typeof packet.payload === 'object' && packet.payload !== null && 'name' in packet.payload
+          ? String((packet.payload as Record<string, unknown>)['name'])
+          : packet.header.sender,
+      lastSeen: Date.now(),
+      hopDistance: packet.header.hopCount + 1,
+      viaAddress: fromAddress
+    };
+    this.peers.set(packet.header.sender, peerInfo);
+    if (isNewPeer) {
+      this.emit('peer:discovered', peerInfo);
+    }
+
     // Mark as seen immediately
     this.queue.markSeen(packet.header.id);
 
-    // 5. Destination Delivery Check
+    // 5. Handle Epidemic Sync Protocol packets
+    if (packet.header.type === 'sync_offer') {
+      const offer = packet.payload as SyncOfferPayload;
+      if (Array.isArray(offer?.offerPacketIds) && offer.senderNodeId !== this.identity.nodeId) {
+        const missing = offer.offerPacketIds.filter((id) => !this.queue.isDuplicate(id));
+        if (missing.length > 0) {
+          const reqPacket = this.createPacket(
+            'sync_request',
+            offer.senderNodeId,
+            { requestedPacketIds: missing, requesterNodeId: this.identity.nodeId } satisfies SyncRequestPayload,
+            'normal',
+            300,
+            1
+          );
+          void this.dispatchPacket(reqPacket);
+        }
+      }
+      return;
+    }
+
+    if (packet.header.type === 'sync_request') {
+      const req = packet.payload as SyncRequestPayload;
+      if (
+        req?.requesterNodeId &&
+        (packet.header.recipient === '*' || packet.header.recipient === this.identity.nodeId)
+      ) {
+        const packetsToSend = this.queue
+          .getAll()
+          .filter((p) => req.requestedPacketIds.includes(p.header.id));
+        for (const p of packetsToSend) {
+          for (const transport of this.transports) {
+            void transport.sendTo(p, fromAddress);
+          }
+        }
+      }
+      return;
+    }
+
+    // 6. Destination Delivery Check
     const isForMe =
       packet.header.recipient === '*' || packet.header.recipient === this.identity.nodeId;
 
-    if (isForMe) {
+    if (isForMe && packet.header.type !== 'heartbeat') {
       const deliveryDelayMs = Math.max(0, Date.now() - packet.header.timestamp);
+      let payloadToDeliver = packet.payload;
+
+      // Automatic E2EE payload decryption if encrypted and targeted to this node
+      if (
+        packet.header.recipient === this.identity.nodeId &&
+        isEncryptedPayload(packet.payload) &&
+        this.identity.x25519PrivateKeyPem
+      ) {
+        try {
+          payloadToDeliver = decryptPayload(packet.payload, this.identity.x25519PrivateKeyPem);
+        } catch {
+          // Payload was not decryptable with our key
+        }
+      }
+
       const delivered: DeliveredMessage = {
         packetId: packet.header.id,
         sender: packet.header.sender,
@@ -252,7 +382,7 @@ export class CrisisNode extends EventEmitter {
         deliveryDelayMs,
         hopCount: packet.header.hopCount,
         path: [...packet.header.path],
-        payload: packet.payload,
+        payload: payloadToDeliver,
         signatureVerified: true
       };
 
@@ -261,14 +391,13 @@ export class CrisisNode extends EventEmitter {
       this.emit('message', delivered);
     }
 
-    // 6. Store-and-Forward Relay Decision
-    // Relay if broadcast OR not destined exclusively to this node, AND hopCount has not exceeded maxHops
+    // 7. Store-and-Forward Relay Decision
     const shouldRelay =
       packet.header.recipient !== this.identity.nodeId || packet.header.recipient === '*';
     const canHop = packet.header.hopCount < packet.header.maxHops;
     const notAlreadyInPath = !packet.header.path.includes(this.identity.nodeId);
 
-    if (shouldRelay && canHop && notAlreadyInPath) {
+    if (shouldRelay && canHop && notAlreadyInPath && packet.header.type !== 'heartbeat') {
       const forwardedPacket: MeshPacket = {
         ...packet,
         header: {

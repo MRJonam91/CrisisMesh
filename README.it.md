@@ -40,9 +40,11 @@ Quando le infrastrutture di telecomunicazione collassano a seguito di terremoti,
 ## 🛰️ La Soluzione: CrisisMesh
 
 CrisisMesh implementa una rete mesh resiliente e opportunistica adatta a condizioni estreme:
-- **Identità Crittografica Deterministica**: Ciascun nodo genera una coppia di chiavi asimmetriche Ed25519. Il Node ID è l'impronta crittografica SHA-256 della chiave pubblica (`cm_<pubkey_hash>`).
+- **Identità Crittografica Deterministica ed E2EE**: Ciascun nodo genera chiavi asimmetriche Ed25519 (firma) e X25519 (cifratura). Il Node ID è l'impronta SHA-256 della chiave pubblica (`cm_<pubkey_hash>`). I messaggi diretti supportano la crittografia end-to-end autenticata (AES-256-GCM via X25519 ECDH), garantendo riservatezza totale anche attraverso relay intermedi sconosciuti.
 - **Busta Crittografica Immutabile**: Ogni messaggio (sia broadcast che diretto) è protetto da firma digitale Ed25519 sul digest canonico SHA-256 dell'intestazione e del payload. Qualsiasi manomissione in transito genera l'errore `[CMSH-ERR-7104]` e lo scarto immediato.
-- **Coda Store-and-Forward Tollerante ai Ritardi (DTN)**: Se il nodo destinatario è fuori portata o isolato, i messaggi restano bufferizzati in memoria e ordinati per priorità (`CRITICAL` > `HIGH` > `NORMAL` > `LOW`).
+- **Coda Store-and-Forward Tollerante ai Ritardi (DTN)**: Se il nodo destinatario è fuori portata o isolato, i messaggi restano bufferizzati in memoria o persistiti su journal atomico anti-crash (`--journal`), ordinati per priorità (`CRITICAL` > `HIGH` > `NORMAL` > `LOW`).
+- **Sincronizzazione Epidemica Delta**: Handshake `sync_offer` e `sync_request` per scambiare unicamente i pacchetti mancanti ad ogni incontro, preservando canali radio a bassa velocità (LoRa, VHF).
+- **Scoperta Vicini e Beacons**: Beacons heartbeat a 1 salto per mappare automaticamente la topologia locale e rilevare i nodi nei paraggi (`peer:discovered`).
 - **Mitigazione di Loop e Amplificazioni**: La cache di deduplicazione `SeenCache` (LRU scorrevole) e il limite massimo di salti (`maxHops`) impediscono tempeste di broadcast nella rete mesh.
 - **Trasporti Modulari**:
   - `VirtualRadioTransport`: Canale radio in-memory con latenza simulata, perdita pacchetti regolabile e partizioni per prove di laboratorio e test CI riproducibili.

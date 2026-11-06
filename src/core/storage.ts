@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2026 Manoj Rollo (MRJonam91)
 
+import fs from 'node:fs';
+import path from 'node:path';
 import type {
   MeshPacket,
   SneakernetBundle
@@ -11,21 +13,28 @@ import { verifyPacketSignature } from './identity.ts';
 export interface StorageOptions {
   maxPackets?: number;
   seenCacheTtlSeconds?: number;
+  storagePath?: string;
 }
 
 /**
  * Delay-Tolerant Store-and-Forward Queue with priority scheduling,
- * duplicate filtering and sneakernet bundle support.
+ * duplicate filtering, persistence journaling and sneakernet bundle support.
  */
 export class StoreAndForwardQueue {
   private queue: MeshPacket[] = [];
   private seenPackets = new Map<string, number>(); // packetId -> expiresAt
   private readonly maxPackets: number;
   private readonly seenTtlMs: number;
+  private readonly storagePath?: string;
 
   constructor(options: StorageOptions = {}) {
     this.maxPackets = options.maxPackets ?? 500;
     this.seenTtlMs = (options.seenCacheTtlSeconds ?? 3600) * 1000;
+    this.storagePath = options.storagePath;
+
+    if (this.storagePath) {
+      this.loadJournal();
+    }
   }
 
   public isDuplicate(packetId: string): boolean {
@@ -55,6 +64,7 @@ export class StoreAndForwardQueue {
 
     this.queue.push(packet);
     this.sortQueue();
+    this.persistJournal();
     return true;
   }
 
@@ -65,7 +75,11 @@ export class StoreAndForwardQueue {
 
   public dequeue(): MeshPacket | undefined {
     this.purgeExpired();
-    return this.queue.shift();
+    const packet = this.queue.shift();
+    if (packet) {
+      this.persistJournal();
+    }
+    return packet;
   }
 
   public getAll(): MeshPacket[] {
@@ -117,6 +131,41 @@ export class StoreAndForwardQueue {
     // Evict lowest priority (last items in sorted queue)
     if (this.queue.length > 0) {
       this.queue.pop();
+      this.persistJournal();
+    }
+  }
+
+  private loadJournal(): void {
+    try {
+      if (!this.storagePath || !fs.existsSync(this.storagePath)) return;
+      const raw = fs.readFileSync(this.storagePath, 'utf8');
+      const loaded = JSON.parse(raw) as MeshPacket[];
+      if (Array.isArray(loaded)) {
+        for (const packet of loaded) {
+          if (verifyPacketSignature(packet) && !this.isExpired(packet)) {
+            this.seenPackets.set(packet.header.id, Date.now() + this.seenTtlMs);
+            this.queue.push(packet);
+          }
+        }
+        this.sortQueue();
+      }
+    } catch {
+      // In disaster situations, fail soft if journal read error
+    }
+  }
+
+  private persistJournal(): void {
+    if (!this.storagePath) return;
+    try {
+      const dir = path.dirname(this.storagePath);
+      if (!fs.existsSync(dir)) {
+        fs.mkdirSync(dir, { recursive: true });
+      }
+      const tmp = `${this.storagePath}.tmp`;
+      fs.writeFileSync(tmp, JSON.stringify(this.queue, null, 2), 'utf8');
+      fs.renameSync(tmp, this.storagePath);
+    } catch {
+      // Fallback
     }
   }
 

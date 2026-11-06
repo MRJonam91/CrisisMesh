@@ -55,7 +55,45 @@ export interface MeshIdentity {
   name: string;
   publicKeyHex: string;
   privateKeyPem: string;
+  x25519PublicKeyHex?: string;
+  x25519PrivateKeyPem?: string;
   createdAt: number;
+}
+
+export interface EncryptedPayload {
+  isEncrypted: true;
+  algorithm: 'aes-256-gcm-x25519';
+  ephemeralPublicKeyHex: string;
+  ivHex: string;
+  authTagHex: string;
+  ciphertextHex: string;
+}
+
+export interface NeighborPeer {
+  nodeId: string;
+  name: string;
+  lastSeen: number;
+  hopDistance: number;
+  viaAddress?: string;
+}
+
+export interface EmergencyDistressPayload {
+  category: 'medical' | 'rescue' | 'hazard' | 'supplies' | 'evacuation' | 'structural';
+  severity: 'sos' | 'urgent' | 'advisory';
+  message: string;
+  location?: { lat: number; lon: number; description?: string };
+  needs?: { waterLitres?: number; rations?: number; powerKw?: number; medicalTriage?: string };
+  casualties?: { injured: number; trapped: number; deceased: number };
+}
+
+export interface SyncOfferPayload {
+  offerPacketIds: string[];
+  senderNodeId: string;
+}
+
+export interface SyncRequestPayload {
+  requestedPacketIds: string[];
+  requesterNodeId: string;
 }
 
 export interface DeliveredMessage<T = unknown> {

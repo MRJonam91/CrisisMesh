@@ -40,9 +40,11 @@ When telecommunication infrastructure collapses (earthquakes, severe storms, ene
 ## 🛰️ The Solution: CrisisMesh
 
 CrisisMesh provides a lightweight, resilient delay-tolerant mesh communication network:
-- **Deterministic Cryptographic Identity**: Every peer generates an Ed25519 asymmetric keypair. The Node ID is a SHA-256 fingerprint (`cm_<pubkey_hash>`).
+- **Deterministic Cryptographic Identity & E2EE**: Every peer generates an Ed25519 signing keypair and an X25519 keypair. The Node ID is a SHA-256 fingerprint (`cm_<pubkey_hash>`). Direct messages support authenticated End-to-End Encryption (AES-256-GCM via X25519 ECDH) ensuring confidentiality across intermediary relays.
 - **Cryptographic Packet Envelope**: Every message (broadcast or direct) is sealed with an Ed25519 digital signature covering the canonical JSON header and payload. Any alteration in transit triggers `[CMSH-ERR-7104]` and immediate rejection.
-- **Delay-Tolerant Store-and-Forward Queue (DTN)**: When target nodes are out of range or partitioned, messages are buffered in memory and prioritized (`CRITICAL` > `HIGH` > `NORMAL` > `LOW`).
+- **Delay-Tolerant Store-and-Forward Queue (DTN)**: When target nodes are out of range or partitioned, messages are buffered in memory or persisted to an atomic crash-resilient journal file (`--journal`). Packets are strictly prioritized (`CRITICAL` > `HIGH` > `NORMAL` > `LOW`).
+- **Epidemic Delta Synchronization**: Bandwidth-saving `sync_offer` and `sync_request` handshake transfers *only* missing packets across encounters, protecting narrow LoRa and VHF channels from saturation.
+- **Neighbor Discovery & Beacons**: Single-hop heartbeats enable dynamic peer discovery and neighbor link mapping (`peer:discovered`).
 - **Broadcast Storm & Loop Mitigation**: Built-in sliding `SeenCache` (LRU deduplication) and strict `maxHops` bounds prevent packet amplification loops across mesh relays.
 - **Pluggable Transports**:
   - `VirtualRadioTransport`: In-memory radio simulation with configurable latency, loss rates, and partition switches for reproducible lab trials.

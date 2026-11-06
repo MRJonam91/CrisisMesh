@@ -7,12 +7,13 @@ import path from 'node:path';
 import {
   createIdentity,
   saveIdentityToFile,
-  loadIdentityFromFile
+  loadIdentityFromFile,
+  ensureEncryptionKeys
 } from '../core/identity.ts';
 import { CrisisNode } from '../core/node.ts';
 import { UdpMeshTransport } from '../core/transports.ts';
 import { runLabTrial } from '../core/labTrial.ts';
-import type { MeshPriority } from '../core/types.ts';
+import type { MeshPriority, EmergencyDistressPayload } from '../core/types.ts';
 
 const SPONSOR_LINE =
   'Ti piace CrisisMesh? Supporta lo sviluppo: https://github.com/sponsors/MRJonam91 o https://paypal.me/manorollo';
@@ -33,16 +34,17 @@ function getArgValue(args: string[], flag: string): string | undefined {
 
 function printHelp(): void {
   console.log(`
-CrisisMesh CLI — Peer-to-peer store-and-forward mesh for blackouts & crisis resilience
+CrisisMesh CLI v1.1.0-alpha — Peer-to-peer store-and-forward mesh for blackouts & crisis resilience
 
 Uso / Usage:
   crisismesh <comando> [opzioni]
 
 Comandi / Commands:
   trial                      Esegue la prova di laboratorio verificabile (First Verifiable Slice)
-  identity create [opzioni]  Genera una nuova identità crittografica Ed25519
+  identity create [opzioni]  Genera una nuova identità crittografica Ed25519 + X25519 (E2EE)
   node start [opzioni]       Avvia un nodo peer mesh attivo su socket locale UDP
   send [opzioni]             Invia un pacchetto firmato su rete locale mesh (broadcast o diretto)
+  sos [opzioni]              Invia un segnale di allarme/soccorso georeferenziato strutturato (CRITICAL)
   bundle export [opzioni]    Esporta la coda store-and-forward in un bundle sneakernet fisico
   bundle import [opzioni]    Importa e verifica pacchetti da un file bundle sneakernet
   sponsor                    Mostra le opzioni per supportare il progetto open source
@@ -57,6 +59,11 @@ Opzioni / Options:
   --message, -m <testo>      Contenuto del messaggio da trasmettere
   --priority <p>             Priorità: critical, high, normal, low (default: normal)
   --to <nodeId>              Destinatario diretto (default: '*' broadcast)
+  --journal <file>           Percorso per persistenza atomica coda store-and-forward
+  --category <cat>           Categoria S.O.S.: medical, rescue, hazard, supplies, structural
+  --lat <latitudine>         Coordinata GPS latitudine
+  --lon <longitudine>        Coordinata GPS longitudine
+  --needs <fabbisogno>       Descrizione bisogni (es: "plasma, acqua 500L, generatore")
   --file <file>              File bundle per import/export
 
 Sponsor:
@@ -74,7 +81,7 @@ async function main(): Promise<void> {
   }
 
   if (command === '--version' || command === '-v') {
-    console.log('crisismesh v1.0.0');
+    console.log('crisismesh v1.1.0-alpha');
     return;
   }
 
@@ -131,9 +138,10 @@ async function main(): Promise<void> {
       saveIdentityToFile(path.resolve(outFile), identity);
 
       console.log(`\n✅ Nuova identità creata con successo in: ${outFile}`);
-      console.log(`   Node ID    : ${identity.nodeId}`);
-      console.log(`   Public Key : ${identity.publicKeyHex.substring(0, 32)}...`);
-      console.log('   Algoritmo  : Ed25519 (RFC 8032)\n');
+      console.log(`   Node ID       : ${identity.nodeId}`);
+      console.log(`   Ed25519 Pubkey: ${identity.publicKeyHex.substring(0, 32)}...`);
+      console.log(`   X25519 E2EE   : ${identity.x25519PublicKeyHex?.substring(0, 32)}...`);
+      console.log('   Algoritmi     : Ed25519 (Firma) + X25519 (Crittografia)\n');
       printSponsorHint();
       return;
     }
@@ -147,25 +155,34 @@ async function main(): Promise<void> {
       const idFile = getArgValue(args, '--id') ?? './node-identity.json';
       const portRaw = getArgValue(args, '--port');
       const port = portRaw ? parseInt(portRaw, 10) : 8443;
+      const journalPath = getArgValue(args, '--journal');
 
       let identity;
       if (fs.existsSync(idFile)) {
         identity = loadIdentityFromFile(idFile);
+        identity = ensureEncryptionKeys(identity);
       } else {
         console.log(`File identità ${idFile} non trovato. Creazione automatica in corso...`);
         identity = createIdentity('auto-node');
         saveIdentityToFile(idFile, identity);
       }
 
-      const node = new CrisisNode({ identity });
+      const node = new CrisisNode({
+        identity,
+        storagePath: journalPath ? path.resolve(journalPath) : undefined
+      });
       const transport = new UdpMeshTransport({ port, broadcastPort: port });
       node.addTransport(transport);
 
       node.on('message', (msg) => {
         console.log(`\n📨 [MESSAGGIO RICEVUTO] [${msg.priority.toUpperCase()}] da ${msg.sender}`);
-        console.log(`   Payload   : ${JSON.stringify(msg.payload)}`);
+        console.log(`   Payload   : ${JSON.stringify(msg.payload, null, 2)}`);
         console.log(`   Firma OK  : ${msg.signatureVerified ? 'Ed25519 Verificata' : 'NON VALIDA'}`);
         console.log(`   Hops      : ${msg.hopCount} (Cammino: ${msg.path.join(' -> ')})`);
+      });
+
+      node.on('peer:discovered', (peer) => {
+        console.log(`\n📡 [VICINO RILEVATO] Nuovo peer ${peer.name} (${peer.nodeId}) a salto ${peer.hopDistance}`);
       });
 
       node.on('packet:tampered', (ev) => {
@@ -173,9 +190,12 @@ async function main(): Promise<void> {
       });
 
       await node.start();
-      console.log(`\n🛰️  CrisisMesh Daemon attivo!`);
-      console.log(`   Node ID   : ${identity.nodeId} (${identity.name})`);
-      console.log(`   Socket UDP: 0.0.0.0:${port}`);
+      console.log(`\n🛰️  CrisisMesh Daemon attivo! (v1.1.0-alpha)`);
+      console.log(`   Node ID       : ${identity.nodeId} (${identity.name})`);
+      console.log(`   Socket UDP    : 0.0.0.0:${port}`);
+      if (journalPath) {
+        console.log(`   Journal File  : ${journalPath} (persistente)`);
+      }
       console.log('   In ascolto di messaggi mesh... Premi Ctrl+C per terminare.\n');
 
       process.on('SIGINT', async () => {
@@ -186,6 +206,50 @@ async function main(): Promise<void> {
       });
       return;
     }
+  }
+
+  if (command === 'sos') {
+    const idFile = getArgValue(args, '--id') ?? './node-identity.json';
+    let identity;
+    if (fs.existsSync(idFile)) {
+      identity = loadIdentityFromFile(idFile);
+    } else {
+      identity = createIdentity('sos-unit');
+    }
+
+    const messageText = getArgValue(args, '-m') ?? getArgValue(args, '--message') ?? 'SOS EMERGENCY BROADCAST';
+    const category = (getArgValue(args, '--category') ?? 'rescue') as EmergencyDistressPayload['category'];
+    const latRaw = getArgValue(args, '--lat');
+    const lonRaw = getArgValue(args, '--lon');
+    const needs = getArgValue(args, '--needs');
+    const portRaw = getArgValue(args, '--port');
+    const port = portRaw ? parseInt(portRaw, 10) : 8443;
+
+    const payload: EmergencyDistressPayload = {
+      category,
+      severity: 'sos',
+      message: messageText,
+      location: latRaw && lonRaw ? { lat: parseFloat(latRaw), lon: parseFloat(lonRaw) } : undefined,
+      needs: needs ? { medicalTriage: needs } : undefined
+    };
+
+    const node = new CrisisNode({ identity });
+    const transport = new UdpMeshTransport({ port: 0, broadcastPort: port });
+    node.addTransport(transport);
+    await node.start();
+
+    await node.broadcast(payload, { priority: 'critical', ttl: 86400 });
+    console.log(`\n🚨 ALLARME S.O.S. TRASMESSO IN BROADCAST (Porta UDP ${port})`);
+    console.log(`   Categoria: ${category.toUpperCase()}`);
+    console.log(`   Messaggio: ${messageText}`);
+    if (payload.location) {
+      console.log(`   GPS Coords: ${payload.location.lat}, ${payload.location.lon}`);
+    }
+
+    await new Promise((resolve) => setTimeout(resolve, 200));
+    await node.stop();
+    printSponsorHint();
+    return;
   }
 
   if (command === 'send') {
